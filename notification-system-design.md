@@ -368,3 +368,226 @@ The application uses **WebSocket** to deliver notifications instantly without re
 # Conclusion
 
 The proposed REST API provides a consistent interface for managing notifications in the Campus Notification System. The design follows REST principles, uses meaningful endpoint naming, standard HTTP methods, JWT-based authentication, JSON payloads, and WebSocket-based real-time delivery. This design offers a solid foundation for future implementation in Spring Boot while providing frontend developers with a clear API contract.
+
+
+------------------------------------------------------------------------------
+---
+
+# Stage 2
+
+# Persistent Storage Selection
+
+For the notification platform, I would choose **PostgreSQL** as the primary database.
+
+The notification system stores structured information such as users, notifications, and read/unread status. These entities have well-defined relationships, making a relational database the most suitable option.
+
+
+
+# Database Design
+
+The notification platform requires three main tables.
+
+## Users Table
+
+| Column | Type | Description |
+|---------|------|-------------|
+| id | BIGSERIAL | Primary Key |
+| name | VARCHAR(100) | User Name |
+| email | VARCHAR(150) | Unique Email Address |
+| created_at | TIMESTAMP | Account Creation Time |
+
+---
+
+## Notifications Table
+
+| Column | Type | Description |
+|---------|------|-------------|
+| id | BIGSERIAL | Primary Key |
+| title | VARCHAR(255) | Notification Title |
+| message | TEXT | Notification Content |
+| category | VARCHAR(50) | Placement, Event, Result, etc. |
+| priority | VARCHAR(20) | LOW, MEDIUM, HIGH |
+| created_at | TIMESTAMP | Notification Creation Time |
+
+---
+
+## User_Notifications Table
+
+This table maps notifications to individual users.
+
+| Column | Type | Description |
+|---------|------|-------------|
+| id | BIGSERIAL | Primary Key |
+| user_id | BIGINT | References Users Table |
+| notification_id | BIGINT | References Notifications Table |
+| is_read | BOOLEAN | Read Status |
+| read_at | TIMESTAMP | Time Notification Was Read |
+
+---
+
+## 1. Slow Search Performance
+
+Searching through millions of records may increase response time.
+
+### Solution
+
+Create indexes on frequently searched columns.
+
+Example:
+
+- user_id
+- notification_id
+- created_at
+- is_read
+
+---
+
+## 2. Increasing Storage Requirements
+
+Older notifications continue occupying database space.
+
+### Solution
+
+Move old notifications to archive tables while keeping recent notifications in the primary database.
+
+---
+
+## 3. Heavy Concurrent Traffic
+
+Thousands of users may request notifications simultaneously.
+
+### Solution
+
+Introduce Redis caching to reduce repeated database access.
+
+---
+
+## 4. Delayed Notification Delivery
+
+Sending notifications one user at a time becomes inefficient.
+
+### Solution
+
+Use a message broker such as RabbitMQ or Apache Kafka so notification delivery happens asynchronously.
+
+---
+
+## 5. Large Table Sizes
+
+Very large tables slow down sorting and filtering operations.
+
+### Solution
+
+Partition notification tables based on creation date (monthly or yearly partitions).
+
+---
+
+# SQL Queries
+
+## Create Notification
+
+```sql
+INSERT INTO notifications
+(title, message, category, priority)
+VALUES
+(
+'Placement Drive',
+'Infosys recruitment drive on Friday',
+'PLACEMENT',
+'HIGH'
+);
+```
+
+---
+
+## Retrieve All Notifications
+
+```sql
+SELECT *
+FROM notifications
+ORDER BY created_at DESC;
+```
+
+---
+
+## Retrieve Notification by ID
+
+```sql
+SELECT *
+FROM notifications
+WHERE id = 101;
+```
+
+---
+
+## Update Notification
+
+```sql
+UPDATE notifications
+SET
+title = 'Placement Drive Updated',
+message = 'Interview venue changed',
+priority = 'HIGH'
+WHERE id = 101;
+```
+
+---
+
+## Delete Notification
+
+```sql
+DELETE FROM notifications
+WHERE id = 101;
+```
+
+---
+
+## Mark Notification as Read
+
+```sql
+UPDATE user_notifications
+SET
+is_read = TRUE,
+read_at = CURRENT_TIMESTAMP
+WHERE
+user_id = 15
+AND notification_id = 101;
+```
+
+---
+
+## Retrieve Unread Notifications
+
+```sql
+SELECT n.id,
+       n.title,
+       n.message,
+       n.priority,
+       n.created_at
+FROM notifications n
+INNER JOIN user_notifications un
+ON n.id = un.notification_id
+WHERE
+un.user_id = 15
+AND un.is_read = FALSE
+ORDER BY n.created_at DESC;
+```
+
+---
+
+# Performance Improvements
+
+To ensure the application performs well even as the number of users grows, the following optimizations can be adopted:
+
+- Create indexes on frequently searched columns.
+- Use pagination to limit records returned in a single request.
+- Cache frequently accessed notifications using Redis.
+- Archive historical notifications.
+- Partition large tables.
+- Process notification delivery asynchronously using RabbitMQ or Kafka.
+
+---
+
+# Conclusion
+
+PostgreSQL is an appropriate database for the notification platform because it provides reliable transaction handling, efficient relationship management, and excellent scalability. With indexing, caching, table partitioning, and asynchronous processing, the notification service can continue to deliver fast and reliable performance even as the number of users and notifications grows substantially.
