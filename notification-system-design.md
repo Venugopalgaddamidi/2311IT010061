@@ -758,3 +758,208 @@ To keep query performance consistent as the database grows, the following improv
 # Conclusion
 
 The original query contains a syntax error and is inefficient for a table containing millions of records. A carefully designed composite index significantly improves performance by reducing full table scans and unnecessary sorting. Rather than indexing every column, indexes should be created based on actual query patterns to balance read performance with write efficiency.
+---------------------------------
+--------------------------------------------------------------------------------------
+---
+
+# Stage 4
+
+# Improving Notification Retrieval Performance
+
+## Problem Statement
+
+The current implementation requests all notifications from the database every time a student opens or refreshes a page. As the number of students and notifications increases, the database receives a large number of repeated requests. This leads to higher response times, unnecessary database load, and a poor user experience.
+
+To improve the system, multiple optimization strategies can be combined instead of depending on a single solution.
+
+---
+
+# Strategy 1: Redis Caching
+
+Frequently accessed notification data can be stored in Redis instead of querying the database repeatedly.
+
+### Working
+
+1. Student requests notifications.
+2. Application checks Redis.
+3. If notifications exist, they are returned immediately.
+4. If not, data is retrieved from PostgreSQL and stored in Redis for future requests.
+
+### Advantages
+
+- Very fast response time.
+- Reduces database queries.
+- Improves application scalability.
+- Handles large numbers of concurrent users efficiently.
+
+### Tradeoffs
+
+- Additional infrastructure is required.
+- Cached data may become outdated for a short period.
+- Cache invalidation logic must be maintained.
+
+---
+
+# Strategy 2: Pagination
+
+Instead of returning every notification, the API should return only a limited number of records.
+
+Example:
+
+```http
+GET /api/v1/notifications?page=0&size=20
+```
+
+### Advantages
+
+- Smaller response size.
+- Lower database workload.
+- Faster page loading.
+- Better memory utilization.
+
+### Tradeoffs
+
+- Users need multiple requests to browse older notifications.
+- Slightly more frontend implementation is required.
+
+---
+
+# Strategy 3: Real-Time Notifications Using WebSocket
+
+After the initial page load, the client should receive newly created notifications through a WebSocket connection instead of repeatedly calling the REST API.
+
+### Advantages
+
+- Eliminates unnecessary polling.
+- Notifications appear instantly.
+- Reduces repeated database requests.
+
+### Tradeoffs
+
+- More complex server implementation.
+- Persistent connections consume server resources.
+- Connection management is required.
+
+---
+
+# Strategy 4: Background Synchronization
+
+The application can refresh notification data periodically in the background instead of requesting data whenever a page is refreshed.
+
+### Advantages
+
+- Fewer database requests.
+- Smooth user experience.
+- Better resource utilization.
+
+### Tradeoffs
+
+- Newly created notifications may not appear immediately.
+- Synchronization interval must be carefully selected.
+
+---
+
+# Strategy 5: Database Index Optimization
+
+Indexes should exist on frequently searched columns.
+
+Recommended columns:
+
+- studentID
+- isRead
+- createdAt
+
+### Advantages
+
+- Faster filtering.
+- Faster sorting.
+- Reduced query execution time.
+
+### Tradeoffs
+
+- INSERT and UPDATE operations become slightly slower.
+- Extra storage is required for indexes.
+
+---
+
+# Strategy 6: Archive Historical Notifications
+
+Older notifications that are rarely accessed can be moved into archive tables.
+
+### Advantages
+
+- Smaller active database.
+- Faster searches.
+- Better overall performance.
+
+### Tradeoffs
+
+- Archived data requires additional retrieval logic.
+- Archive maintenance jobs must be scheduled.
+
+---
+
+# Strategy 7: Load Only Unread Notifications Initially
+
+When a student logs in, the application should initially load only unread notifications.
+
+Older notifications can be retrieved only if the user requests them.
+
+### Advantages
+
+- Less data transferred.
+- Faster initial page loading.
+- Reduced database usage.
+
+### Tradeoffs
+
+- Additional API endpoints are needed.
+- Users must explicitly load older notifications.
+
+---
+
+# Recommended Combined Solution
+
+The most effective solution is to combine multiple techniques rather than relying on one optimization.
+
+Recommended architecture:
+
+```
+Student
+    │
+    ▼
+REST API
+    │
+    ▼
+Redis Cache
+    │
+ Cache Miss
+    ▼
+PostgreSQL
+    │
+    ▼
+WebSocket Server
+    │
+    ▼
+Student Browser
+```
+
+Workflow:
+
+1. Student logs into the application.
+2. Notifications are first searched in Redis.
+3. If unavailable, PostgreSQL provides the data.
+4. Redis stores the latest notifications for future requests.
+5. New notifications are delivered through WebSocket.
+6. Pagination is used for loading older notifications.
+
+This combination significantly reduces database traffic while maintaining fast response times.
+
+---
+
+# Conclusion
+
+Fetching notifications directly from the database on every page load is inefficient for a large-scale system. A combination of Redis caching, pagination, WebSocket-based real-time updates, optimized database indexes, and archival of old notifications provides a scalable and efficient solution. These strategies reduce database load, improve response time, and offer a smoother experience for users while maintaining reliable notification delivery.
+
+----------------------------------------------------------------------------------------------
+
