@@ -963,3 +963,222 @@ Fetching notifications directly from the database on every page load is ineffici
 
 ----------------------------------------------------------------------------------------------
 
+---
+
+# Stage 5
+
+# Reliable Notification Delivery for "Notify All"
+
+## Existing Implementation
+
+```text
+function notify_all(student_ids, message):
+
+    for student_id in student_ids:
+
+        send_email(student_id, message)
+
+        save_to_db(student_id, message)
+
+        push_to_app(student_id, message)
+```
+
+---
+
+# Shortcomings of the Current Design
+
+The above implementation works correctly for a small number of students, but it is not suitable for sending notifications to **50,000 students**.
+
+The major problems are:
+
+### 1. Sequential Processing
+
+Each student is processed one after another. The next notification cannot begin until the previous student's email, database operation, and app notification are completed.
+
+**Impact**
+
+- Slow execution
+- High response time
+- Poor scalability
+
+---
+
+### 2. Single Point of Failure
+
+If sending an email fails, the remaining students may never receive notifications.
+
+**Impact**
+
+- Incomplete notification delivery
+- Difficult recovery
+
+---
+
+### 3. External API Dependency
+
+The email service is an external system and may become slow or unavailable.
+
+**Impact**
+
+- Entire notification process waits.
+- Overall execution time increases.
+
+---
+
+### 4. No Retry Mechanism
+
+When an email fails, it is immediately lost.
+
+**Impact**
+
+- Students may never receive important placement information.
+
+---
+
+### 5. No Parallel Processing
+
+All notification tasks execute on a single thread.
+
+**Impact**
+
+- Poor utilization of system resources.
+- Cannot support large-scale notification delivery.
+
+---
+
+# Email Failure for 200 Students
+
+Logs show that email delivery failed for 200 students.
+
+Instead of stopping the process, the failed notifications should be stored in a retry queue.
+
+A background worker can retry sending emails after a fixed interval.
+
+If retries continue to fail, the failed records should be stored in a Dead Letter Queue (DLQ) for manual investigation.
+
+This ensures that temporary failures do not permanently lose notifications.
+
+---
+
+# Improved Architecture
+
+Instead of performing every operation synchronously, the system should use asynchronous processing.
+
+```
+HR
+ │
+ ▼
+Notification API
+ │
+ ▼
+Save Notification
+ │
+ ▼
+Message Queue
+ │
+ ├──────────────┐
+ ▼              ▼
+Email Worker    App Notification Worker
+ │              │
+ ▼              ▼
+Email API   WebSocket Server
+ │              │
+ ▼              ▼
+Students     Students
+```
+
+---
+
+# Why Use a Message Queue?
+
+A message queue such as RabbitMQ or Apache Kafka allows background workers to process notifications independently.
+
+Benefits include:
+
+- Faster response to HR.
+- Parallel notification delivery.
+- Retry mechanism.
+- Better scalability.
+- Higher reliability.
+
+---
+
+# Should Database Save and Email Sending Happen Together?
+
+No.
+
+The notification should first be saved successfully in the database.
+
+Only after successful storage should the message be published to the queue for email delivery and in-app notifications.
+
+### Reason
+
+Saving the notification creates a permanent record.
+
+If email delivery fails, the notification is still available in the application and the email can be retried later.
+
+Keeping these operations independent prevents data loss and improves system reliability.
+
+---
+
+# Revised Pseudocode
+
+```text
+function notify_all(student_ids, message):
+
+    notification_id = create_notification(message)
+
+    for student_id in student_ids:
+
+        save_notification(student_id, notification_id)
+
+        publish_to_queue(
+            student_id,
+            notification_id
+        )
+
+
+-------------------------------------------
+
+Email Worker
+
+while(queue is not empty):
+
+    task = queue.consume()
+
+    try:
+
+        send_email(task.student_id)
+
+    catch:
+
+        retry(task)
+
+-------------------------------------------
+
+App Notification Worker
+
+while(queue is not empty):
+
+    task = queue.consume()
+
+    push_to_app(task.student_id)
+```
+
+---
+
+# Advantages of the New Design
+
+- Notification API responds quickly.
+- Database remains the single source of truth.
+- Email failures do not affect other students.
+- Notifications are processed in parallel.
+- Failed deliveries can be retried automatically.
+- Easily scalable for thousands of students.
+- Supports future integrations such as SMS or WhatsApp notifications.
+
+---
+
+# Conclusion
+
+For large-scale notification delivery, asynchronous processing is more reliable than sequential execution. By storing notifications first and then using a message queue with dedicated workers for email and in-app delivery, the system becomes faster, fault tolerant, and scalable. This design ensures that temporary failures do not result in lost notifications while providing a better experience for both administrators and students.
