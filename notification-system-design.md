@@ -591,3 +591,170 @@ To ensure the application performs well even as the number of users grows, the f
 # Conclusion
 
 PostgreSQL is an appropriate database for the notification platform because it provides reliable transaction handling, efficient relationship management, and excellent scalability. With indexing, caching, table partitioning, and asynchronous processing, the notification service can continue to deliver fast and reliable performance even as the number of users and notifications grows substantially.
+
+
+
+
+----------------------------------------------------------
+---
+
+# Stage 3
+
+# Query Analysis and Optimization
+
+The current SQL query provided by the previous developer is:
+
+```sql
+SELECT FROM notifications *
+WHERE studentID = 1042
+AND isRead = false
+ORDER BY createdAt DESC;
+```
+
+---
+
+# Is the Query Correct?
+
+No. The query contains a syntax error.
+
+The `*` should come immediately after the `SELECT` keyword.
+
+### Correct Query
+
+```sql
+SELECT *
+FROM notifications
+WHERE studentID = 1042
+AND isRead = FALSE
+ORDER BY createdAt DESC;
+```
+
+---
+
+# Why is the Query Slow?
+
+When the notification table contains nearly **5 million records**, retrieving data becomes more expensive if the database cannot efficiently locate the required rows.
+
+The main reasons for slower execution are:
+
+### 1. Full Table Scan
+
+Without suitable indexes, the database scans every notification record before applying the filter.
+
+### 2. Sorting Overhead
+
+The query sorts notifications by `createdAt`. Sorting a large result set consumes additional processing time.
+
+### 3. Large Number of Notifications
+
+A single student may have accumulated thousands of notifications over time, increasing the amount of data that must be processed.
+
+### 4. Growing Database Size
+
+As more notifications are stored, disk I/O increases and query execution naturally becomes slower.
+
+---
+
+# Recommended Improvements
+
+Instead of indexing every column, create a composite index that matches the filtering and sorting conditions used by the query.
+
+### Composite Index
+
+```sql
+CREATE INDEX idx_student_read_created
+ON notifications
+(studentID, isRead, createdAt DESC);
+```
+
+This index helps the database:
+
+- Locate a student's notifications quickly.
+- Filter unread notifications efficiently.
+- Return results already ordered by `createdAt`.
+- Reduce unnecessary sorting operations.
+
+---
+
+# Expected Computational Cost
+
+### Without Index
+
+```
+O(N)
+```
+
+The database may examine every notification record.
+
+For approximately **5,000,000** notifications, this results in a full table scan.
+
+---
+
+### With Composite Index
+
+```
+O(log N + K)
+```
+
+Where:
+
+- **N** = Total number of notifications
+- **K** = Number of unread notifications belonging to the requested student
+
+The database searches the index using logarithmic time and retrieves only the matching rows.
+
+---
+
+# Should Every Column be Indexed?
+
+No.
+
+Adding indexes to every column is generally not a good database design strategy.
+
+### Reasons
+
+- Every INSERT operation must also update every index.
+- UPDATE statements become slower.
+- DELETE operations require additional index maintenance.
+- More disk space is consumed.
+- Many indexes remain unused and provide no benefit.
+
+Indexes should only be created on columns that are frequently used in:
+
+- WHERE clauses
+- JOIN conditions
+- ORDER BY clauses
+- GROUP BY clauses
+
+Choosing indexes based on query patterns provides better performance than indexing every column.
+
+---
+
+# SQL Query
+
+## Students Who Received Placement Notifications During the Last 7 Days
+
+```sql
+SELECT DISTINCT studentID
+FROM notifications
+WHERE notificationType = 'Placement'
+AND createdAt >= CURRENT_DATE - INTERVAL '7 days';
+```
+
+---
+
+# Additional Optimization Suggestions
+
+To keep query performance consistent as the database grows, the following improvements can also be adopted:
+
+- Partition the notifications table using the creation date.
+- Archive old notifications that are no longer accessed frequently.
+- Use pagination when returning notification lists.
+- Cache frequently requested notification data using Redis.
+- Analyze slow queries periodically using PostgreSQL's `EXPLAIN ANALYZE` command.
+
+---
+
+# Conclusion
+
+The original query contains a syntax error and is inefficient for a table containing millions of records. A carefully designed composite index significantly improves performance by reducing full table scans and unnecessary sorting. Rather than indexing every column, indexes should be created based on actual query patterns to balance read performance with write efficiency.
